@@ -4,6 +4,11 @@ import numpy as np
 from numpy.core.fromnumeric import shape
 import tensorflow as tf
 
+width = 28
+height = 28
+channel = 1
+out_class = 10
+
 def loadTrainData():
     l = []
     with open('./digit_recognizer/train.csv') as f:
@@ -60,18 +65,15 @@ def bias_variable(shape, name):
     init = tf.constant(0.01, shape=shape)
     return tf.Variable(init, name=name)
 
-def classify():
-    width = 28
-    height = 28
-    channel = 1
-    out_class = 10
-    batch_size = 3000
-    
+def saveResults(result):
+    with open('./digit_recognizer/result.csv', 'w') as f:
+        writer = csv.writer(f)
+        for index,i in enumerate(result):
+            tmp = [index+1]
+            tmp.append(i)
+            writer.writerow(tmp)
 
-    digit_ = tf.placeholder(tf.float32, shape=[None, width * height * channel])
-    digit = tf.reshape(digit_, shape=[-1, width, height, channel])
-    y_ = tf.placeholder(tf.float32, shape=[None, out_class])
-    
+def model(digit):
     w1 = weight_variale([3, 3, 1, 32], name='w1')
     b1 = bias_variable([32], name='b1')
     c1 = tf.nn.relu(conv(digit, w1) + b1)
@@ -94,19 +96,26 @@ def classify():
     b_fc2 = bias_variable([10], name='fc_b2')
     fc2 = tf.matmul(fc1, w_fc2) + b_fc2
     fc2 = tf.nn.softmax(fc2)
+    return fc2
 
-    cross_entropy = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(fc2), reduction_indices=[1]))
-    # cross_entropy = tf.nn.softmax_cross_entropy_with_logits_v2(labels=y_, logits=fc2)
+def train():
+    batch_size = 3000
+    digit_ = tf.placeholder(tf.float32, shape=[None, width * height * channel])
+    digit = tf.reshape(digit_, shape=[-1, width, height, channel])
+    y_ = tf.placeholder(tf.float32, shape=[None, out_class])
+    pred = model(digit)
+    cross_entropy = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(pred), reduction_indices=[1]))
     train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
-    correct_prediction = tf.equal(tf.argmax(fc2, 1), tf.argmax(y_, 1))
+    correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y_, 1))
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
+    saver = tf.train.Saver()
     epochs = 300
 
     train_data, label = loadTrainData()
     train_size = np.shape(train_data)[0]
     max_batch = (train_size-5000) // batch_size
-    # test_data = loadTestData()
+    best_accuracy = 0
+    
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for i in range(epochs):
@@ -114,10 +123,23 @@ def classify():
                 batch_data = train_data[idx * batch_size : (idx+1) * batch_size, :]
                 batch_label = label[idx * batch_size : (idx+1) * batch_size, :]
                 _ = sess.run(train_step, feed_dict={digit_: batch_data, y_: batch_label})
-            rd_idx = np.random.randint(0, train_size-batch_size)
-            
             val_data = train_data[-5000: , :]
             val_label = label[-5000 : , :]
             pre_accuracy = sess.run(accuracy, feed_dict={digit_: val_data, y_: val_label})
             print(i, pre_accuracy)
-classify()
+            if pre_accuracy > best_accuracy:
+                saver.save(sess, './digit_recognizer/model/digit_recognization.ckpt')
+
+def test():
+    test_data = loadTestData()
+    digit_ = tf.placeholder(tf.float32, shape=[None, width * height * channel])
+    digit = tf.reshape(digit_, shape=[-1, width, height, channel])
+    pred = model(digit)
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        saver.restore(sess, './digit_recognizer/model/digit_recognization.ckpt')
+        result = sess.run(pred, feed_dict={digit_: test_data})
+        result = np.argmax(result, axis=1)
+    saveResults(result)
+
+test()
